@@ -1,5 +1,118 @@
 
-# ------------------------------------------------------------------ video tab
+"""
+app.py - Deepfake Detector Pro
+Run: streamlit run app.py
+"""
+
+import json
+import os
+import tempfile
+import time
+
+import cv2
+import numpy as np
+import pandas as pd
+import streamlit as st
+
+import detector as D
+
+
+# --------------------------------------------------
+# Page configuration
+# --------------------------------------------------
+st.set_page_config(
+    page_title="Deepfake Detector Pro",
+    page_icon="🕵️",
+    layout="wide",
+)
+
+st.title("🕵️ Deepfake Detector Pro")
+st.caption(
+    "CNN fake-score + Grad-CAM + blink analysis + ELA + audit log"
+)
+
+
+# --------------------------------------------------
+# Sidebar settings
+# --------------------------------------------------
+st.sidebar.header("Settings")
+
+model_path = st.sidebar.text_input("Model file", D.MODEL_PATH)
+max_seconds = st.sidebar.slider(
+    "Video ke pehle kitne seconds analyze karein", 5, 120, 30
+)
+cnn_per_sec = st.sidebar.slider("CNN frames per second", 1, 6, 3)
+fake_thr = st.sidebar.slider(
+    "FAKE threshold", 0.50, 0.95, 0.65, 0.01
+)
+real_thr = st.sidebar.slider(
+    "REAL threshold", 0.05, 0.50, 0.35, 0.01
+)
+
+st.sidebar.info(
+    "REAL threshold aur FAKE threshold ke beech score ho "
+    "to result UNCERTAIN aa sakta hai."
+)
+
+
+# --------------------------------------------------
+# Model loading
+# --------------------------------------------------
+if not os.path.exists(model_path):
+    st.error(
+        f"Model file '{model_path}' nahi mili. "
+        "Model file upload/add karo aur MODEL_PATH check karo."
+    )
+    st.stop()
+
+
+@st.cache_resource
+def get_model(path):
+    return D.DeepfakeModel(path)
+
+
+try:
+    model = get_model(model_path)
+except Exception as e:
+    st.error("Model load nahi ho paya.")
+    st.exception(e)
+    st.stop()
+
+
+# --------------------------------------------------
+# Result banner
+# --------------------------------------------------
+def banner(res):
+    if res["label"] == "NO FACE":
+        st.warning("Koi face nahi mila.")
+        return
+
+    msg = (
+        f"**{res['label']}** | "
+        f"Fake score: {res['score']:.2f} | "
+        f"Fake frames: {res['frac_fake'] * 100:.0f}%"
+    )
+
+    {
+        "FAKE": st.error,
+        "REAL": st.success,
+    }.get(res["label"], st.warning)(msg)
+
+    for note in res.get("notes", []):
+        st.caption("• " + note)
+
+
+# --------------------------------------------------
+# IMPORTANT: Create tabs before using them
+# --------------------------------------------------
+tab_video, tab_image, tab_info = st.tabs(
+    ["🎬 Video", "🖼️ Image", "ℹ️ How it works"]
+)
+
+
+# --------------------------------------------------
+# VIDEO TAB
+# --------------------------------------------------
 with tab_video:
     up = st.file_uploader(
         "Video upload karo",
@@ -19,30 +132,25 @@ with tab_video:
                 suffix = os.path.splitext(up.name)[1] or ".mp4"
 
                 with tempfile.NamedTemporaryFile(
-                    suffix=suffix, delete=False
+                    suffix=suffix,
+                    delete=False,
                 ) as tmp:
                     tmp.write(data)
                     tmp_path = tmp.name
 
                 bar = st.progress(0.0, text="Analyzing...")
 
+                def update_progress(value):
+                    value = min(1.0, max(0.0, float(value)))
+                    bar.progress(value, text="Analyzing...")
+
                 r = D.analyze_video(
                     model,
                     tmp_path,
                     max_seconds,
                     cnn_per_sec,
-                    progress=lambda v: bar.progress(
-                        min(1.0, max(0.0, float(v))),
-                        text="Analyzing...",
-                    ),
+                    progress=update_progress,
                 )
-
-                res = D.decide(
-                    r["probs"], r["blink"], fake_thr, real_thr
-                )
-                sha = D.sha256_bytes(data)
-                D.log_analysis(up.name, sha, res["label"], res["score"])
-                banner(res)
 
                 if not r["probs"]:
                     st.warning(
@@ -50,11 +158,36 @@ with tab_video:
                         "Doosra video try karo."
                     )
                 else:
+                    res = D.decide(
+                        r["probs"],
+                        r["blink"],
+                        fake_thr,
+                        real_thr,
+                    )
+
+                    sha = D.sha256_bytes(data)
+                    D.log_analysis(
+                        up.name,
+                        sha,
+                        res["label"],
+                        res["score"],
+                    )
+
+                    banner(res)
+
                     c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("Frames analyzed (CNN)", len(r["probs"]))
+                    c1.metric("Frames analyzed", len(r["probs"]))
                     c2.metric("Max fake score", f"{max(r['probs']):.2f}")
                     c3.metric("Blinks", r["blink"]["blinks"])
-                    c4.metric("Blink rate / min", r["blink"]["rate_per_min"])
+                    c4.metric(
+                        "Blink rate / min",
+                        r["blink"]["rate_per_min"],
+                    )
+
+                    st.caption(
+                        "Blink rate sirf supporting signal hai; "
+                        "ise akela deepfake proof na samjhein."
+                    )
 
                     df = pd.DataFrame({
                         "time_s": np.round(r["times"], 2),
@@ -64,24 +197,34 @@ with tab_video:
                     st.subheader("Fake score timeline")
                     st.line_chart(df.set_index("time_s")["fake_prob"])
 
-                    if r["fps"] > 0 and r["ear"]:
+                    if r.get("fps", 0) > 0 and r.get("ear"):
                         ear = pd.DataFrame({
-                            "time_s": np.arange(len(r["ear"])) / r["fps"],
+                            "time_s": (
+                                np.arange(len(r["ear"])) / r["fps"]
+                            ),
                             "EAR": [
                                 np.nan if v is None else v
                                 for v in r["ear"]
                             ],
                         })
+
                         st.subheader("Eye Aspect Ratio (blink graph)")
                         st.line_chart(ear.set_index("time_s")["EAR"])
 
                     st.subheader("Suspicious frames + Grad-CAM")
+                    st.caption(
+                        "Highlighted regions model ke focus ko dikhate hain; "
+                        "ye apne aap mein fake hone ka proof nahi hain."
+                    )
+
                     top = np.argsort(r["probs"])[::-1][:4]
                     cols = st.columns(len(top))
 
                     for col, idx in zip(cols, top):
+                        explanation = model.explain(r["faces"][idx])
+
                         col.image(
-                            model.explain(r["faces"][idx]),
+                            explanation,
                             channels="BGR",
                             caption=(
                                 f"t={r['times'][idx]:.1f}s | "
@@ -104,12 +247,14 @@ with tab_video:
                     }
 
                     d1, d2 = st.columns(2)
+
                     d1.download_button(
                         "⬇️ Frame-wise CSV",
                         df.to_csv(index=False).encode("utf-8"),
                         "frames.csv",
                         "text/csv",
                     )
+
                     d2.download_button(
                         "⬇️ JSON report",
                         json.dumps(report, indent=2, default=str),
@@ -133,3 +278,101 @@ with tab_video:
                         os.unlink(tmp_path)
                     except OSError:
                         pass
+
+
+# --------------------------------------------------
+# IMAGE TAB
+# --------------------------------------------------
+with tab_image:
+    upi = st.file_uploader(
+        "Image upload karo",
+        type=["jpg", "jpeg", "png"],
+        key="img",
+    )
+
+    if upi is not None:
+        raw = upi.getvalue()
+
+        bgr = cv2.imdecode(
+            np.frombuffer(raw, np.uint8),
+            cv2.IMREAD_COLOR,
+        )
+
+        if bgr is None:
+            st.error("Image read nahi ho payi.")
+        else:
+            try:
+                r = D.analyze_image(model, bgr)
+
+                if not r["face_found"]:
+                    banner({"label": "NO FACE"})
+                    st.image(bgr, channels="BGR", caption="Original image")
+
+                else:
+                    res = D.decide(
+                        [r["fake_prob"]],
+                        None,
+                        fake_thr,
+                        real_thr,
+                    )
+
+                    D.log_analysis(
+                        upi.name,
+                        D.sha256_bytes(raw),
+                        res["label"],
+                        res["score"],
+                    )
+
+                    banner(res)
+
+                    c1, c2, c3 = st.columns(3)
+
+                    c1.image(
+                        r["face"],
+                        channels="BGR",
+                        caption="Detected face",
+                    )
+
+                    c2.image(
+                        r["cam"],
+                        channels="BGR",
+                        caption="Grad-CAM",
+                    )
+
+                    c3.image(
+                        r["ela"],
+                        caption="Error Level Analysis (ELA)",
+                    )
+
+                    st.caption(
+                        "ELA supporting analysis hai. Compression aur "
+                        "image editing results ko affect kar sakte hain."
+                    )
+
+            except Exception as e:
+                st.error("Image analysis failed.")
+                st.exception(e)
+
+
+# --------------------------------------------------
+# INFORMATION TAB
+# --------------------------------------------------
+with tab_info:
+    st.markdown("""
+## How it works
+
+1. MediaPipe FaceMesh face aur landmarks detect karta hai.
+2. Face crop EfficientNet-B0 model ko diya jata hai.
+3. Video frames mein eye movements aur blink patterns analyze hote hain.
+4. Grad-CAM model ke focus regions dikhata hai.
+5. ELA image compression differences ko highlight karne mein madad karta hai.
+6. Analysis ka SHA-256 hash audit log mein record hota hai.
+
+## Limitations
+
+- Accuracy training data aur model quality par depend karti hai.
+- Low light, compression aur side-face images results ko affect kar sakte hain.
+- Blink detection akela deepfake identify nahi kar sakta.
+- ELA akela image manipulation ka proof nahi hai.
+- Results ko supporting evidence samjhein, final proof nahi.
+""")
