@@ -1,3 +1,4 @@
+from pathlib import Path
 """
 detector.py - Core engine for Deepfake Detector Pro
 
@@ -17,6 +18,8 @@ import time
 
 import cv2
 import mediapipe as mp
+from mediapipe.tasks import python as mp_python
+from mediapipe.tasks.python import vision
 import numpy as np
 import torch
 import torch.nn as nn
@@ -51,29 +54,57 @@ def prep(bgr):
 
 
 # ------------------------------------------------------------------ face
-class FaceTracker:
-    """MediaPipe FaceMesh wrapper. process() -> (468,2) pixel landmarks ya None."""
 
+class FaceTracker:
     def __init__(self, static=False):
-        self.mesh = mp.solutions.face_mesh.FaceMesh(
-            static_image_mode=static,
-            max_num_faces=1,
-            refine_landmarks=False,
-            min_detection_confidence=0.5,
+        model_path = str(Path(__file__).resolve().parent / "models" / "face_landmarker.task")
+
+        options = vision.FaceLandmarkerOptions(
+            base_options=mp_python.BaseOptions(
+                model_asset_path=model_path
+            ),
+            running_mode=(
+                vision.RunningMode.IMAGE
+                if static
+                else vision.RunningMode.VIDEO
+            ),
+            num_faces=1,
+            min_face_detection_confidence=0.5,
+            min_face_presence_confidence=0.5,
             min_tracking_confidence=0.5,
         )
 
+        self.mesh = vision.FaceLandmarker.create_from_options(options)
+        self.static = static
+        self._timestamp_ms = 0
+
     def process(self, bgr):
-        h, w = bgr.shape[:2]
-        res = self.mesh.process(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
-        if not res.multi_face_landmarks:
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        image = mp.Image(
+            image_format=mp.ImageFormat.SRGB,
+            data=rgb
+        )
+
+        if self.static:
+            result = self.mesh.detect(image)
+        else:
+            self._timestamp_ms += 33
+            result = self.mesh.detect_for_video(
+                image, self._timestamp_ms
+            )
+
+        if not result.face_landmarks:
             return None
-        lm = res.multi_face_landmarks[0].landmark
-        return np.array([[p.x * w, p.y * h] for p in lm], dtype=np.float32)
+
+        h, w = bgr.shape[:2]
+        points = result.face_landmarks[0]
+        return np.array(
+            [[point.x * w, point.y * h] for point in points],
+            dtype=np.float32
+        )
 
     def close(self):
         self.mesh.close()
-
 
 def crop_from_pts(bgr, pts, margin=0.25):
     """Landmarks se face crop (margin ke saath, kinare deepfake ke liye important hain)."""
