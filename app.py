@@ -334,9 +334,7 @@ with tab_image:
 
 
                         banner(res)
-
                         c1, c2, c3 = st.columns(3)
-
                         c1.image(
                             r["face"],
                             channels="BGR",
