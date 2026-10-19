@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from PIL import Image
-
+from PIL import Image
 import detector as D
 
 # --------------------------------------------------
@@ -338,10 +338,19 @@ with tab_image:
                     cam_rgb = cv2.cvtColor(
                         r["cam"], cv2.COLOR_BGR2RGB
                     )
+                    face_img = Image.fromarray(
+                        np.ascontiguousarray(face_rgb)
+                    )
+                    cam_img = Image.fromarray(
+                        np.ascontiguousarray(cam_rgb)
+                    )
+                    ela_img = Image.fromarray(
+                        np.ascontiguousarray(r["ela"])
+                    )
 
-                    c1.image(face_rgb, caption="Detected face")
-                    c2.image(cam_rgb, caption="Grad-CAM")
-                    c3.image(r["ela"], caption="Error Level Analysis (ELA)")        
+                    c1.image(face_img, caption="Detected face")
+                    c2.image(cam_img, caption="Grad-CAM")
+                    c3.image(ela_img, caption="Error Level Analysis (ELA)")   
             except Exception as e:
                 st.error("Image analysis failed.")
                 st.exception(e)
