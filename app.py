@@ -669,7 +669,7 @@ with tab_video:
                         )
 
                     # Grad-CAM frames
-                    st.subheader("Suspicious Frames + Grad-CAM")
+                    st.subheader("Highest-Score Frames + Grad-CAM")
                     st.caption(
                         "Grad-CAM model ke focus regions dikhata hai. "
                         "Ye akela deepfake hone ka proof nahi hai."
