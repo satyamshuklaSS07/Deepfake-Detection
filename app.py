@@ -1,6 +1,6 @@
 
 """
-app.py - Deepfake Detector Pro
+Deepfake Detector Pro
 Run: streamlit run app.py
 """
 
@@ -8,6 +8,7 @@ import json
 import os
 import tempfile
 import time
+from io import BytesIO
 
 import cv2
 import numpy as np
@@ -28,9 +29,7 @@ st.set_page_config(
 )
 
 st.title("🕵️ Deepfake Detector Pro")
-st.caption(
-    "CNN fake-score + Grad-CAM + blink analysis + ELA + audit log"
-)
+st.caption("CNN Fake Score | Grad-CAM | ELA | Video Analysis | Audit Log")
 
 
 # --------------------------------------------------
@@ -46,31 +45,28 @@ max_seconds = st.sidebar.slider(
 )
 
 cnn_per_sec = st.sidebar.slider(
-    "CNN frames per second",
-    1, 6, 3
+    "CNN frames per second", 1, 6, 3
 )
 
 fake_thr = st.sidebar.slider(
-    "FAKE threshold",
-    0.50, 0.95, 0.65, 0.01
+    "FAKE threshold", 0.50, 0.95, 0.65, 0.01
 )
 
 real_thr = st.sidebar.slider(
-    "REAL threshold",
-    0.05, 0.50, 0.35, 0.01
+    "REAL threshold", 0.05, 0.50, 0.35, 0.01
 )
 
 st.sidebar.info(
-    "REAL threshold aur FAKE threshold ke beech score ho "
-    "to result UNCERTAIN aa sakta hai."
+    "REAL aur FAKE thresholds ke beech score aane par "
+    "result UNCERTAIN ho sakta hai."
 )
 
 
 # --------------------------------------------------
-# IMAGE CONVERSION HELPERS
+# IMAGE DISPLAY HELPERS
 # --------------------------------------------------
 def to_uint8(image):
-    """Convert an image-like value to a safe uint8 array."""
+    """Convert image data into a valid uint8 array."""
     arr = np.asarray(image)
 
     if arr.size == 0:
@@ -79,401 +75,451 @@ def to_uint8(image):
     if arr.dtype != np.uint8:
         arr = np.nan_to_num(arr)
 
-        if arr.max() <= 1.0 and arr.min() >= 0.0:
-            arr = arr * 255.0
+        if arr.min() >= 0 and arr.max() <= 1:
+            arr = arr * 255
 
         arr = np.clip(arr, 0, 255).astype(np.uint8)
 
     return np.ascontiguousarray(arr)
 
 
-def bgr_to_pil(image):
-    """Convert OpenCV BGR/grayscale image to PIL."""
+def image_to_pil(image, color_format="BGR"):
+    """Convert NumPy image arrays into PIL images."""
     arr = to_uint8(image)
 
     if arr.ndim == 2:
         return Image.fromarray(arr)
 
-    if arr.ndim == 3 and arr.shape[2] == 4:
-        rgba = cv2.cvtColor(arr, cv2.COLOR_BGRA2RGBA)
-        return Image.fromarray(np.ascontiguousarray(rgba))
+    if arr.ndim != 3:
+        raise ValueError(f"Unsupported image shape: {arr.shape}")
 
-    if arr.ndim == 3 and arr.shape[2] == 3:
-        rgb = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
-        return Image.fromarray(np.ascontiguousarray(rgb))
+    if arr.shape[2] == 4:
+        if color_format.upper() == "BGR":
+            arr = cv2.cvtColor(arr, cv2.COLOR_BGRA2RGBA)
+        return Image.fromarray(np.ascontiguousarray(arr))
 
-    raise ValueError(f"Unsupported image shape: {arr.shape}")
+    if arr.shape[2] != 3:
+        raise ValueError(f"Unsupported image shape: {arr.shape}")
 
+    if color_format.upper() == "BGR":
+        arr = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
 
-def rgb_to_pil(image):
-    """Convert RGB/grayscale image to PIL."""
-    arr = to_uint8(image)
-
-    if arr.ndim == 2:
-        return Image.fromarray(arr)
-
-    if arr.ndim == 3 and arr.shape[2] == 4:
-        return Image.fromarray(arr, mode="RGBA")
-
-    if arr.ndim == 3 and arr.shape[2] == 3:
-        return Image.fromarray(arr, mode="RGB")
-
-    raise ValueError(f"Unsupported RGB image shape: {arr.shape}")
+    return Image.fromarray(np.ascontiguousarray(arr))
 
 
-def explanation_to_pil(image):
-    """Convert OpenCV BGR Grad-CAM output to PIL RGB."""
-    return bgr_to_pil(image)
+def show_image(container, image, caption, color_format="BGR"):
+    """Safely convert and display an image in Streamlit."""
+    if image is None:
+        container.warning(f"{caption}: image available nahi hai.")
+        return
+
+    try:
+        pil_image = image_to_pil(image, color_format)
+
+        buffer = BytesIO()
+        pil_image.save(buffer, format="PNG")
+        png_bytes = buffer.getvalue()
+
+        if not png_bytes:
+            raise ValueError("PNG image create nahi hui.")
+
+        container.image(
+            png_bytes,
+            caption=caption,
+            use_container_width=True,
+        )
+
+    except Exception as error:
+        container.error(f"{caption} display error: {error}")
 
 
 # --------------------------------------------------
 # MODEL LOADING
 # --------------------------------------------------
-if not os.path.exists(model_path):
+if not os.path.isfile(model_path):
     st.error(
-        f"Model file '{model_path}' nahi mili. "
-        "Model file add karo aur MODEL_PATH check karo."
+        f"Model file nahi mili: {model_path}\n\n"
+        "Sidebar mein correct model path set karo."
     )
     st.stop()
 
 
 @st.cache_resource
-def get_model(path):
+def load_model(path):
     return D.DeepfakeModel(path)
 
 
 try:
-    model = get_model(model_path)
-except Exception as e:
+    model = load_model(model_path)
+except Exception as error:
     st.error("Model load nahi ho paya.")
-    st.exception(e)
+    st.exception(error)
     st.stop()
 
 
 # --------------------------------------------------
 # RESULT BANNER
 # --------------------------------------------------
-def banner(res):
-    if res.get("label") == "NO FACE":
-        st.warning("Koi face nahi mila.")
+def show_result(result):
+    label = result.get("label", "UNCERTAIN")
+
+    if label == "NO FACE":
+        st.warning("Image/video mein face detect nahi hua.")
         return
 
-    score = float(res.get("score", 0.0))
-    frac_fake = float(res.get("frac_fake", 0.0))
+    score = float(result.get("score", 0))
+    fake_fraction = float(result.get("frac_fake", 0))
 
-    msg = (
-        f"**{res.get('label', 'UNCERTAIN')}** | "
-        f"Fake score: {score:.2f} | "
-        f"Fake frames: {frac_fake * 100:.0f}%"
+    message = (
+        f"**{label}** | Fake score: {score:.2f} | "
+        f"Fake frames: {fake_fraction * 100:.0f}%"
     )
 
-    {
-        "FAKE": st.error,
-        "REAL": st.success,
-    }.get(res.get("label"), st.warning)(msg)
+    if label == "REAL":
+        st.success(message)
+    elif label == "FAKE":
+        st.error(message)
+    else:
+        st.warning(message)
 
-    for note in res.get("notes", []):
-        st.caption("• " + str(note))
+    for note in result.get("notes", []):
+        st.caption(str(note))
 
 
 # --------------------------------------------------
 # TABS
 # --------------------------------------------------
 tab_video, tab_image, tab_info = st.tabs(
-    ["🎬 Video", "🖼️ Image", "ℹ️ How it works"]
+    ["🎬 Video Analysis", "🖼️ Image Analysis", "ℹ️ Information"]
 )
 
 
 # --------------------------------------------------
-# VIDEO TAB
+# VIDEO ANALYSIS
 # --------------------------------------------------
 with tab_video:
-    up = st.file_uploader(
+    uploaded_video = st.file_uploader(
         "Video upload karo",
         type=["mp4", "avi", "mov", "mkv", "webm"],
-        key="vid",
+        key="video_uploader",
     )
 
-    if up is not None:
-        data = up.getvalue()
-        st.video(data)
+    if uploaded_video is not None:
+        video_bytes = uploaded_video.getvalue()
+        st.video(video_bytes)
 
-        if st.button("Analyze video", type="primary"):
-            tmp_path = None
-            bar = None
+        if st.button("Analyze Video", type="primary"):
+            temp_path = None
+            progress_bar = None
 
             try:
-                suffix = os.path.splitext(up.name)[1] or ".mp4"
+                suffix = os.path.splitext(uploaded_video.name)[1] or ".mp4"
 
                 with tempfile.NamedTemporaryFile(
                     suffix=suffix,
                     delete=False,
-                ) as tmp:
-                    tmp.write(data)
-                    tmp_path = tmp.name
+                ) as temp_file:
+                    temp_file.write(video_bytes)
+                    temp_path = temp_file.name
 
-                bar = st.progress(0.0, text="Analyzing...")
+                progress_bar = st.progress(
+                    0.0,
+                    text="Video analyze ho raha hai..."
+                )
 
                 def update_progress(value):
-                    value = min(1.0, max(0.0, float(value)))
-                    bar.progress(value, text="Analyzing...")
+                    value = max(0.0, min(1.0, float(value)))
+                    progress_bar.progress(
+                        value,
+                        text=f"Analyzing video: {value * 100:.0f}%"
+                    )
 
-                r = D.analyze_video(
+                result = D.analyze_video(
                     model,
-                    tmp_path,
+                    temp_path,
                     max_seconds,
                     cnn_per_sec,
                     progress=update_progress,
                 )
 
-                if not r.get("probs"):
+                probabilities = result.get("probs", [])
+
+                if len(probabilities) == 0:
                     st.warning(
-                        "Video se koi face/frame analyze nahi ho paya. "
-                        "Doosra video try karo."
+                        "Video mein koi face/frame analyze nahi hua. "
+                        "Clear face wala doosra video try karo."
                     )
 
                 else:
-                    res = D.decide(
-                        r["probs"],
-                        r.get("blink"),
+                    verdict = D.decide(
+                        probabilities,
+                        result.get("blink"),
                         fake_thr,
                         real_thr,
                     )
 
-                    sha = D.sha256_bytes(data)
+                    file_hash = D.sha256_bytes(video_bytes)
 
                     D.log_analysis(
-                        up.name,
-                        sha,
-                        res["label"],
-                        res["score"],
+                        uploaded_video.name,
+                        file_hash,
+                        verdict["label"],
+                        verdict["score"],
                     )
 
-                    banner(res)
+                    show_result(verdict)
 
-                    df = pd.DataFrame(
-                        {
-                            "time_s": np.round(r["times"], 2),
-                            "fake_prob": np.round(r["probs"], 4),
-                        }
-                    )
+                    times = result.get("times", [])
 
-                    st.subheader("Fake score timeline")
-                    st.line_chart(
-                        df.set_index("time_s")["fake_prob"]
-                    )
+                    if len(times) == len(probabilities):
+                        frame_data = pd.DataFrame({
+                            "time_s": np.round(times, 2),
+                            "fake_probability": np.round(
+                                probabilities, 4
+                            ),
+                        })
 
-                    fps = r.get("fps", 0)
-                    ear_values = r.get("ear", [])
-
-                    if fps and fps > 0 and len(ear_values) > 0:
-                        ear = pd.DataFrame(
-                            {
-                                "time_s": (
-                                    np.arange(len(ear_values)) / fps
-                                ),
-                                "EAR": [
-                                    np.nan if value is None else value
-                                    for value in ear_values
-                                ],
-                            }
+                        st.subheader("Fake Score Timeline")
+                        st.line_chart(
+                            frame_data.set_index("time_s")[
+                                "fake_probability"
+                            ]
                         )
 
-                        st.subheader("Eye Aspect Ratio (blink graph)")
-                        st.line_chart(ear.set_index("time_s")["EAR"])
+                    else:
+                        frame_data = pd.DataFrame({
+                            "fake_probability": np.round(
+                                probabilities, 4
+                            )
+                        })
 
-                    st.subheader("Suspicious frames + Grad-CAM")
+                    fps = result.get("fps", 0)
+                    ear_values = result.get("ear", [])
 
+                    if fps and fps > 0 and len(ear_values) > 0:
+                        ear_data = pd.DataFrame({
+                            "time_s": np.arange(
+                                len(ear_values)
+                            ) / fps,
+                            "EAR": [
+                                np.nan if value is None else value
+                                for value in ear_values
+                            ],
+                        })
+
+                        st.subheader("Eye Aspect Ratio")
+                        st.line_chart(
+                            ear_data.set_index("time_s")["EAR"]
+                        )
+
+                    # Grad-CAM frames
+                    st.subheader("Suspicious Frames + Grad-CAM")
                     st.caption(
-                        "Highlighted regions model ke focus ko dikhate hain; "
-                        "ye apne aap mein fake hone ka proof nahi hain."
+                        "Grad-CAM model ke focus regions dikhata hai. "
+                        "Ye akela deepfake hone ka proof nahi hai."
                     )
 
-                    probabilities = np.asarray(
-                        r["probs"],
-                        dtype=float,
+                    faces = result.get("faces", [])
+                    probabilities_array = np.asarray(
+                        probabilities, dtype=float
                     )
 
-                    top = np.argsort(probabilities)[::-1][:4]
-                    faces = r.get("faces", [])
-                    cols = st.columns(max(1, len(top)))
+                    top_indices = np.argsort(
+                        probabilities_array
+                    )[::-1][:4]
 
-                    for col, idx in zip(cols, top):
-                        if idx >= len(faces):
-                            col.warning("Frame image unavailable")
+                    columns = st.columns(max(1, len(top_indices)))
+
+                    for column, index in zip(columns, top_indices):
+                        if index >= len(faces):
+                            column.warning("Frame image unavailable.")
                             continue
 
                         try:
-                            explanation = model.explain(faces[idx])
+                            explanation = model.explain(faces[index])
 
                             if explanation is None:
-                                col.warning("Grad-CAM image unavailable")
+                                column.warning(
+                                    "Grad-CAM available nahi hai."
+                                )
                                 continue
 
-                            col.image(
-                                explanation_to_pil(explanation),
-                                caption=(
-                                    f"t={r['times'][idx]:.1f}s | "
-                                    f"fake {probabilities[idx]:.2f}"
+                            show_image(
+                                column,
+                                explanation,
+                                (
+                                    f"Time: {times[index]:.1f}s | "
+                                    f"Fake score: "
+                                    f"{probabilities_array[index]:.2f}"
                                 ),
-                                use_container_width=True,
+                                color_format="BGR",
                             )
 
                         except Exception as image_error:
-                            col.warning(
-                                "Is frame ka Grad-CAM display nahi hua: "
-                                f"{image_error}"
+                            column.warning(
+                                f"Frame display error: {image_error}"
                             )
 
                     report = {
-                        "file": up.name,
-                        "sha256": sha,
-                        "time": time.strftime("%Y-%m-%d %H:%M:%S"),
-                        "verdict": res,
-                        "blink": r.get("blink"),
+                        "file": uploaded_video.name,
+                        "sha256": file_hash,
+                        "time": time.strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        ),
+                        "verdict": verdict,
+                        "blink": result.get("blink"),
                         "settings": {
                             "max_seconds": max_seconds,
                             "cnn_per_sec": cnn_per_sec,
-                            "fake_thr": fake_thr,
-                            "real_thr": real_thr,
+                            "fake_threshold": fake_thr,
+                            "real_threshold": real_thr,
                         },
                     }
 
-                    d1, d2 = st.columns(2)
+                    csv_column, json_column = st.columns(2)
 
-                    d1.download_button(
-                        "⬇️ Frame-wise CSV",
-                        df.to_csv(index=False).encode("utf-8"),
-                        "frames.csv",
-                        "text/csv",
+                    csv_column.download_button(
+                        "⬇️ Download CSV Report",
+                        frame_data.to_csv(index=False).encode("utf-8"),
+                        file_name="deepfake_frames.csv",
+                        mime="text/csv",
                     )
 
-                    d2.download_button(
-                        "⬇️ JSON report",
-                        json.dumps(report, indent=2, default=str),
-                        "report.json",
-                        "application/json",
+                    json_column.download_button(
+                        "⬇️ Download JSON Report",
+                        json.dumps(
+                            report,
+                            indent=2,
+                            default=str
+                        ),
+                        file_name="deepfake_report.json",
+                        mime="application/json",
                     )
 
-                    with st.expander("Frame-wise table"):
-                        st.dataframe(df, use_container_width=True)
+                    with st.expander("View Frame-wise Data"):
+                        st.dataframe(
+                            frame_data,
+                            use_container_width=True,
+                        )
 
-            except Exception as e:
+            except Exception as error:
                 st.error("Video analysis failed.")
-                st.exception(e)
+                st.exception(error)
 
             finally:
-                if bar is not None:
-                    bar.empty()
+                if progress_bar is not None:
+                    progress_bar.empty()
 
-                if tmp_path and os.path.exists(tmp_path):
+                if temp_path and os.path.exists(temp_path):
                     try:
-                        os.unlink(tmp_path)
+                        os.unlink(temp_path)
                     except OSError:
                         pass
 
 
 # --------------------------------------------------
-# IMAGE TAB
+# IMAGE ANALYSIS
 # --------------------------------------------------
 with tab_image:
-    upi = st.file_uploader(
+    uploaded_image = st.file_uploader(
         "Image upload karo",
         type=["jpg", "jpeg", "png"],
-        key="img",
+        key="image_uploader",
     )
 
-    if upi is not None:
-        raw = upi.getvalue()
+    if uploaded_image is not None:
+        image_bytes = uploaded_image.getvalue()
 
-        bgr = cv2.imdecode(
-            np.frombuffer(raw, dtype=np.uint8),
+        image_array = cv2.imdecode(
+            np.frombuffer(image_bytes, dtype=np.uint8),
             cv2.IMREAD_COLOR,
         )
 
-        if bgr is None:
+        if image_array is None:
             st.error(
-                "Image read nahi ho payi. JPG ya PNG image try karo."
+                "Image read nahi ho payi. Valid JPG ya PNG upload karo."
             )
 
         else:
-            st.subheader("Uploaded image")
+            st.subheader("Uploaded Image")
 
-            st.image(
-                bgr_to_pil(bgr),
-                caption="Original image",
-                use_container_width=True,
+            show_image(
+                st,
+                image_array,
+                "Original Image",
+                color_format="BGR",
             )
 
             try:
-                r = D.analyze_image(model, bgr)
+                image_result = D.analyze_image(
+                    model,
+                    image_array,
+                )
 
-                if not r.get("face_found", False):
-                    banner({"label": "NO FACE"})
+                if not image_result.get("face_found", False):
+                    show_result({"label": "NO FACE"})
 
                     st.info(
-                        "Image mein face detect nahi hua. Clear, "
-                        "front-facing image try karo."
+                        "Face detect nahi hua. Clear, front-facing "
+                        "image try karo."
                     )
 
                 else:
-                    res = D.decide(
-                        [float(r["fake_prob"])],
+                    verdict = D.decide(
+                        [float(image_result["fake_prob"])],
                         None,
                         fake_thr,
                         real_thr,
                     )
 
                     D.log_analysis(
-                        upi.name,
-                        D.sha256_bytes(raw),
-                        res["label"],
-                        res["score"],
+                        uploaded_image.name,
+                        D.sha256_bytes(image_bytes),
+                        verdict["label"],
+                        verdict["score"],
                     )
 
-                    banner(res)
+                    show_result(verdict)
 
-                    st.subheader("Image analysis")
-                    c1, c2, c3 = st.columns(3)
+                    st.subheader("Image Analysis Results")
 
-                    # Face crop is OpenCV BGR.
-                    if r.get("face") is not None:
-                        c1.image(
-                            bgr_to_pil(r["face"]),
-                            caption="Detected face",
-                            use_container_width=True,
+                    face_column, cam_column, ela_column = st.columns(3)
+
+                    with face_column:
+                        st.markdown("**Detected Face**")
+                        show_image(
+                            st,
+                            image_result.get("face"),
+                            "Detected Face",
+                            color_format="BGR",
                         )
-                    else:
-                        c1.warning("Detected face image unavailable")
 
-                    # Grad-CAM output is OpenCV BGR.
-                    if r.get("cam") is not None:
-                        c2.image(
-                            explanation_to_pil(r["cam"]),
-                            caption="Grad-CAM",
-                            use_container_width=True,
+                    with cam_column:
+                        st.markdown("**Grad-CAM**")
+                        show_image(
+                            st,
+                            image_result.get("cam"),
+                            "Grad-CAM",
+                            color_format="BGR",
                         )
-                    else:
-                        c2.warning("Grad-CAM image unavailable")
 
-                    # ELA output from this project is RGB.
-                    if r.get("ela") is not None:
-                        c3.image(
-                            rgb_to_pil(r["ela"]),
-                            caption="Error Level Analysis (ELA)",
-                            use_container_width=True,
+                    with ela_column:
+                        st.markdown("**Error Level Analysis**")
+                        show_image(
+                            st,
+                            image_result.get("ela"),
+                            "ELA",
+                            color_format="RGB",
                         )
-                    else:
-                        c3.warning("ELA image unavailable")
 
                     st.caption(
-                        "Grad-CAM aur ELA sirf supportive visual clues hain; "
-                        "ye akela kisi image ke fake hone ka proof nahi hain."
+                        "Grad-CAM aur ELA supportive visual tools hain. "
+                        "Ye akelay manipulation ka final proof nahi hain."
                     )
 
-            except Exception as e:
+            except Exception as error:
                 st.error("Image analysis failed.")
-                st.exception(e)
+                st.exception(error)
 
 
 # --------------------------------------------------
@@ -482,19 +528,19 @@ with tab_image:
 with tab_info:
     st.markdown(
         """
-## How it works
+## How It Works
 
 1. MediaPipe face detector face aur landmarks detect karta hai.
-2. Face crop EfficientNet-B0 model ko diya jata hai.
-3. Video frames mein eye movements aur blink patterns analyze hote hain.
-4. Grad-CAM model ke focus regions dikhata hai.
+2. Face crop trained CNN model ko diya jata hai.
+3. Video ke selected frames analyze kiye jate hain.
+4. Grad-CAM model ke focus regions ko visualize karta hai.
 5. ELA image compression differences ko highlight karne mein madad karta hai.
-6. Analysis ka SHA-256 hash audit log mein record hota hai.
+6. SHA-256 hash analysis file ko identify karne mein madad karta hai.
 
-## Limitations
+## Important Limitations
 
-- Accuracy training data aur model quality par depend karti hai.
-- Low light, compression aur side-face images results ko affect kar sakte hain.
+- Accuracy trained model aur dataset ki quality par depend karti hai.
+- Poor lighting, compression aur side-face images results ko affect kar sakte hain.
 - Blink detection akela deepfake identify nahi kar sakta.
 - ELA akela image manipulation ka proof nahi hai.
 - Results ko supporting evidence samjhein, final proof nahi.
