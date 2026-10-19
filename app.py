@@ -352,12 +352,9 @@ with tab_image:
                         ela_img = Image.fromarray(
                             np.ascontiguousarray(r["ela"])
                         )
-
-                        c1.image(face_img, caption="Detected face")
-                        c2.image(cam_img, caption="Grad-CAM")
-                        c3.image(
-                            ela_img,
-                            caption="Error Level Analysis (ELA)"
+c1.image(r["face"], channels="BGR", caption="Detected face")
+c2.image(r["cam"], channels="BGR", caption="Grad-CAM")
+c3.image(r["ela"], channels="RGB", caption="Error Level Analysis (ELA)")
                         )
 
                 except Exception as e:
