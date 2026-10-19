@@ -307,67 +307,59 @@ with tab_image:
         if bgr is None:
             st.error("Image read nahi ho payi.")
         else:
-            try:
-                r = D.analyze_image(model, bgr)
+                try:
+                    r = D.analyze_image(model, bgr)
 
-                if not r["face_found"]:
-                    banner({"label": "NO FACE"})
-                    st.image(bgr, channels="BGR", caption="Original image")
+                    if not r["face_found"]:
+                        banner({"label": "NO FACE"})
+                        st.image(
+                            bgr,
+                            channels="BGR",
+                            caption="Original image"
+                        )
+                    else:
+                        res = D.decide(
+                            [r["fake_prob"]],
+                            None,
+                            fake_thr,
+                            real_thr,
+                        )
 
-                else:
-                    res = D.decide(
-                        [r["fake_prob"]],
-                        None,
-                        fake_thr,
-                        real_thr,
-                    )
+                        D.log_analysis(
+                            upi.name,
+                            D.sha256_bytes(raw),
+                            res["label"],
+                            res["score"],
+                        )
 
-                    D.log_analysis(
-                        upi.name,
-                        D.sha256_bytes(raw),
-                        res["label"],
-                        res["score"],
-                    )
-                    banner(res)
+                        banner(res)
 
-                    c1, c2, c3 = st.columns(3)
+                        c1, c2, c3 = st.columns(3)
 
-                    face_rgb = cv2.cvtColor(
-                        r["face"], cv2.COLOR_BGR2RGB
-                    )
-                    cam_rgb = cv2.cvtColor(
-                        r["cam"], cv2.COLOR_BGR2RGB
-                    )
+                        face_rgb = cv2.cvtColor(
+                            r["face"], cv2.COLOR_BGR2RGB
+                        )
+                        cam_rgb = cv2.cvtColor(
+                            r["cam"], cv2.COLOR_BGR2RGB
+                        )
 
+                        face_img = Image.fromarray(
+                            np.ascontiguousarray(face_rgb)
+                        )
+                        cam_img = Image.fromarray(
+                            np.ascontiguousarray(cam_rgb)
+                        )
+                        ela_img = Image.fromarray(
+                            np.ascontiguousarray(r["ela"])
+                        )
 
+                        c1.image(face_img, caption="Detected face")
+                        c2.image(cam_img, caption="Grad-CAM")
+                        c3.image(
+                            ela_img,
+                            caption="Error Level Analysis (ELA)"
+                        )
 
-                    c1, c2, c3 = st.columns(3)
-
-                    face_rgb = cv2.cvtColor(
-                        r["face"], cv2.COLOR_BGR2RGB
-                    )
-                    cam_rgb = cv2.cvtColor(
-                        r["cam"], cv2.COLOR_BGR2RGB
-                    )
-
-                    face_img = Image.fromarray(
-                        np.ascontiguousarray(face_rgb)
-                    )
-                    cam_img = Image.fromarray(
-                        np.ascontiguousarray(cam_rgb)
-                    )
-                    ela_img = Image.fromarray(
-                        np.ascontiguousarray(r["ela"])
-                    )
-
-                    st.write("Face shape:", r["face"].shape)
-                    st.write("CAM shape:", r["cam"].shape)
-                    st.write("ELA shape:", r["ela"].shape)
-
-                    c1.image(face_img, caption="Detected face")
-                    c2.image(cam_img, caption="Grad-CAM")
-                    c3.image(ela_img, caption="Error Level Analysis (ELA)")
-                   
                 except Exception as e:
                     st.error("Image analysis failed.")
                     st.exception(e)
