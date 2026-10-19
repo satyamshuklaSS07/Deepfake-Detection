@@ -349,7 +349,8 @@ with tab_image:
                         cam_img = Image.fromarray(
                             np.ascontiguousarray(cam_rgb)
                         )
-                         ela_img = Image.fromarray( np.ascontiguousarray(r["ela"])
+                                                ela_img = Image.fromarray(
+                            np.ascontiguousarray(r["ela"])
                         )
 
                         c1.image(
@@ -362,6 +363,15 @@ with tab_image:
                             channels="BGR",
                             caption="Grad-CAM"
                         )
+                        c3.image(
+                            r["ela"],
+                            channels="RGB",
+                            caption="Error Level Analysis (ELA)"
+                        )
+
+                except Exception as e:
+                    st.error("Image analysis failed.")
+                    st.exception(e)
                         c3.image(
                             r["ela"],
                             channels="RGB",
