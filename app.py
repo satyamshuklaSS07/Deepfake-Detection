@@ -176,32 +176,17 @@ with tab_video:
                     banner(res)
             c1, c2, c3 = st.columns(3)
 
-            c1.image(
-                r["face"],
-                channels="BGR",
-                caption="Detected face",
-            )
-
-            c2.image(
-                r["cam"],
-                channels="BGR",
-                caption="Grad-CAM",
-            )
-
-            c3.image(
-                r["ela"],
-                caption="Error Level Analysis (ELA)",
-            )
+            c1.image(r["face"], channels="BGR", caption="Detected face")
+            c2.image(r["cam"], channels="BGR", caption="Grad-CAM")
+            c3.image(r["ela"], caption="Error Level Analysis (ELA)")
 
             st.caption(
                 "ELA supporting analysis hai. Compression aur "
                 "image editing results ko affect kar sakte hain."
             )
-
-    except Exception as e:
+      except Exception as e:
         st.error("Image analysis failed.")
         st.exception(e)
-  
                     )
 
                     df = pd.DataFrame({
