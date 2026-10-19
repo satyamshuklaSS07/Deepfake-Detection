@@ -355,8 +355,6 @@ with tab_image:
 c1.image(r["face"], channels="BGR", caption="Detected face")
 c2.image(r["cam"], channels="BGR", caption="Grad-CAM")
 c3.image(r["ela"], channels="RGB", caption="Error Level Analysis (ELA)")
-                        )
-
                 except Exception as e:
                     st.error("Image analysis failed.")
                     st.exception(e)
