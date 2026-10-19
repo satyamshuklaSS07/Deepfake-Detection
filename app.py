@@ -236,25 +236,21 @@ with tab_video:
                                 cv2.cvtColor(explanation, cv2.COLOR_BGR2RGB),
                                 caption=f"t={r['times'][idx]:.1f}s | fake {r['probs'][idx]:.2f}",
                                 use_container_width=True,
-                            )
-                        
-                                caption=(
-                                    f"t={r['times'][idx]:.1f}s | "
-                                    f"fake {r['probs'][idx]:.2f}"
-                                ),
+                            )             
+                        if explanation.ndim == 2:
+                            col.image(
+                                explanation,
+                                caption=f"t={r['times'][idx]:.1f}s | fake {r['probs'][idx]:.2f}",
                                 use_container_width=True,
                             )
                         else:
                             col.image(
-                                cv2.cvtColor(
-                                    explanation, cv2.COLOR_BGR2RGB
-                                ),
-                                caption=(
-                                    f"t={r['times'][idx]:.1f}s | "
-                                    f"fake {r['probs'][idx]:.2f}"
-                                ),
+                                cv2.cvtColor(explanation, cv2.COLOR_BGR2RGB),
+                                caption=f"t={r['times'][idx]:.1f}s | fake {r['probs'][idx]:.2f}",
                                 use_container_width=True,
                             )
+
+                    report = {
 
                     report = {
                         "file": up.name,
