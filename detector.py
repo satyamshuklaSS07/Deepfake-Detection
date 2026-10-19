@@ -1,9 +1,8 @@
-from pathlib import Path
 """
 detector.py - Core engine for Deepfake Detector Pro
 
 Isme ye sab hai:
-  * FaceTracker      : MediaPipe FaceMesh se face + 468 landmarks
+  * FaceTracker      : MediaPipe FaceLandmarker (Tasks API) se face + landmarks
   * DeepfakeModel    : EfficientNet-B0 classifier + Grad-CAM explainability
   * analyze_video    : frame-wise fake score + blink (liveness) analysis
   * analyze_image    : single image analysis + Grad-CAM + ELA
@@ -15,14 +14,16 @@ import hashlib
 import io
 import os
 import time
+import urllib.request
+from pathlib import Path
 
 import cv2
 import mediapipe as mp
-from mediapipe.tasks import python as mp_python
-from mediapipe.tasks.python import vision
 import numpy as np
 import torch
 import torch.nn as nn
+from mediapipe.tasks import python as mp_python
+from mediapipe.tasks.python import vision
 from PIL import Image, ImageChops
 from torchvision import models, transforms
 
@@ -30,13 +31,19 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_PATH = os.environ.get("DF_MODEL", "deepfake_model.pt")
 LOG_DIR = "logs"
 
+LANDMARKER_PATH = Path(__file__).resolve().parent / "models" / "face_landmarker.task"
+LANDMARKER_URL = (
+    "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
+    "face_landmarker/float16/1/face_landmarker.task"
+)
+
 TFM = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
 ])
 
-# MediaPipe FaceMesh landmark indices (EAR ke liye)
+# FaceLandmarker landmark indices (EAR ke liye)
 R_EYE = [33, 160, 158, 133, 153, 144]
 L_EYE = [362, 385, 387, 263, 373, 380]
 
@@ -54,57 +61,57 @@ def prep(bgr):
 
 
 # ------------------------------------------------------------------ face
+def ensure_landmarker():
+    """face_landmarker.task file na ho to apne aap download kar leta hai."""
+    if LANDMARKER_PATH.exists():
+        return str(LANDMARKER_PATH)
+    LANDMARKER_PATH.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        urllib.request.urlretrieve(LANDMARKER_URL, str(LANDMARKER_PATH))
+    except Exception as e:
+        raise FileNotFoundError(
+            f"face_landmarker.task nahi mili aur download bhi fail hua ({e}). "
+            f"Is file ko {LANDMARKER_PATH} par rakho. Link: {LANDMARKER_URL}"
+        )
+    return str(LANDMARKER_PATH)
+
 
 class FaceTracker:
-    def __init__(self, static=False):
-        model_path = str(Path(__file__).resolve().parent / "models" / "face_landmarker.task")
+    """process() -> (N,2) pixel landmarks ya None."""
 
+    def __init__(self, static=False):
         options = vision.FaceLandmarkerOptions(
-            base_options=mp_python.BaseOptions(
-                model_asset_path=model_path
-            ),
-            running_mode=(
-                vision.RunningMode.IMAGE
-                if static
-                else vision.RunningMode.VIDEO
-            ),
+            base_options=mp_python.BaseOptions(model_asset_path=ensure_landmarker()),
+            running_mode=vision.RunningMode.IMAGE if static else vision.RunningMode.VIDEO,
             num_faces=1,
             min_face_detection_confidence=0.5,
             min_face_presence_confidence=0.5,
             min_tracking_confidence=0.5,
         )
-
         self.mesh = vision.FaceLandmarker.create_from_options(options)
         self.static = static
         self._timestamp_ms = 0
 
     def process(self, bgr):
-        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-        image = mp.Image(
-            image_format=mp.ImageFormat.SRGB,
-            data=rgb
-        )
+        rgb = np.ascontiguousarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
+        image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
 
         if self.static:
             result = self.mesh.detect(image)
         else:
-            self._timestamp_ms += 33
-            result = self.mesh.detect_for_video(
-                image, self._timestamp_ms
-            )
+            self._timestamp_ms += 33  # timestamp badhta rehna zaruri hai
+            result = self.mesh.detect_for_video(image, self._timestamp_ms)
 
         if not result.face_landmarks:
             return None
 
         h, w = bgr.shape[:2]
         points = result.face_landmarks[0]
-        return np.array(
-            [[point.x * w, point.y * h] for point in points],
-            dtype=np.float32
-        )
+        return np.array([[p.x * w, p.y * h] for p in points], dtype=np.float32)
 
     def close(self):
         self.mesh.close()
+
 
 def crop_from_pts(bgr, pts, margin=0.25):
     """Landmarks se face crop (margin ke saath, kinare deepfake ke liye important hain)."""
@@ -164,7 +171,9 @@ def overlay_cam(face_bgr, cam):
 
 class DeepfakeModel:
     def __init__(self, path=MODEL_PATH):
-        ckpt = torch.load(path, map_location=DEVICE)
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Model file nahi mili: {path}")
+        ckpt = torch.load(path, map_location=DEVICE, weights_only=True)
         self.net = build_net(pretrained=False)
         self.net.load_state_dict(ckpt["state"])
         self.net.eval()
