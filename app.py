@@ -339,6 +339,17 @@ with tab_image:
                         r["cam"], cv2.COLOR_BGR2RGB
                     )
 
+                                     banner(res)
+
+                    c1, c2, c3 = st.columns(3)
+
+                    face_rgb = cv2.cvtColor(
+                        r["face"], cv2.COLOR_BGR2RGB
+                    )
+                    cam_rgb = cv2.cvtColor(
+                        r["cam"], cv2.COLOR_BGR2RGB
+                    )
+
                     face_img = Image.fromarray(
                         np.ascontiguousarray(face_rgb)
                     )
@@ -356,10 +367,10 @@ with tab_image:
                     c1.image(face_img, caption="Detected face")
                     c2.image(cam_img, caption="Grad-CAM")
                     c3.image(ela_img, caption="Error Level Analysis (ELA)")
+                   
                 except Exception as e:
                     st.error("Image analysis failed.")
                     st.exception(e)
-
 # --------------------------------------------------
 # INFORMATION TAB
 # --------------------------------------------------
