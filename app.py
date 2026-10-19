@@ -237,7 +237,7 @@ with tab_video:
                                 caption=f"t={r['times'][idx]:.1f}s | fake {r['probs'][idx]:.2f}",
                                 use_container_width=True,
                             )
-                                explanation,
+                        
                                 caption=(
                                     f"t={r['times'][idx]:.1f}s | "
                                     f"fake {r['probs'][idx]:.2f}"
