@@ -251,8 +251,6 @@ with tab_video:
                             )
 
                     report = {
-
-                    report = {
                         "file": up.name,
                         "sha256": sha,
                         "time": time.strftime("%Y-%m-%d %H:%M:%S"),
