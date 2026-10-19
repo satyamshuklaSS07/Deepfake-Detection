@@ -224,19 +224,7 @@ with tab_video:
                                 explanation = explanation.clip(
                                     0, 255
                                 ).astype(np.uint8)
-
-                        if explanation.ndim == 2:
-                            col.image(
-                                explanation,
-                                caption=f"t={r['times'][idx]:.1f}s | fake {r['probs'][idx]:.2f}",
-                                use_container_width=True,
-                            )
-                        else:
-                            col.image(
-                                cv2.cvtColor(explanation, cv2.COLOR_BGR2RGB),
-                                caption=f"t={r['times'][idx]:.1f}s | fake {r['probs'][idx]:.2f}",
-                                use_container_width=True,
-                            )             
+                             
                         if explanation.ndim == 2:
                             col.image(
                                 explanation,
@@ -344,29 +332,16 @@ with tab_image:
                     banner(res)
 
                     c1, c2, c3 = st.columns(3)
-
-                    c1.image(
-                        r["face"],
-                        channels="BGR",
-                        caption="Detected face",
+                    face_rgb = cv2.cvtColor(
+                        r["face"], cv2.COLOR_BGR2RGB
+                    )
+                    cam_rgb = cv2.cvtColor(
+                        r["cam"], cv2.COLOR_BGR2RGB
                     )
 
-                    c2.image(
-                        r["cam"],
-                        channels="BGR",
-                        caption="Grad-CAM",
-                    )
-
-                    c3.image(
-                        r["ela"],
-                        caption="Error Level Analysis (ELA)",
-                    )
-
-                    st.caption(
-                        "ELA supporting analysis hai. Compression aur "
-                        "image editing results ko affect kar sakte hain."
-                    )
-
+                    c1.image(face_rgb, caption="Detected face")
+                    c2.image(cam_rgb, caption="Grad-CAM")
+                    c3.image(r["ela"], caption="Error Level Analysis (ELA)")        
             except Exception as e:
                 st.error("Image analysis failed.")
                 st.exception(e)
