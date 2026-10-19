@@ -201,11 +201,7 @@ with tab_video:
     except Exception as e:
         st.error("Image analysis failed.")
         st.exception(e)
-    "image editing results ko affect kar sakte hain."
-)
-
-                        "Blink rate sirf supporting signal hai; "
-                        "ise akela deepfake proof na samjhein."
+  
                     )
 
                     df = pd.DataFrame({
