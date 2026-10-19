@@ -203,7 +203,7 @@ with tab_video:
                         "ye apne aap mein fake hone ka proof nahi hain."
                     )
 
-                                     top = np.argsort(r["probs"])[::-1][:4]
+                    top = np.argsort(r["probs"])[::-1][:4]
                     cols = st.columns(len(top))
 
                     for col, idx in zip(cols, top):
@@ -227,6 +227,16 @@ with tab_video:
 
                         if explanation.ndim == 2:
                             col.image(
+                                explanation,
+                                caption=f"t={r['times'][idx]:.1f}s | fake {r['probs'][idx]:.2f}",
+                                use_container_width=True,
+                            )
+                        else:
+                            col.image(
+                                cv2.cvtColor(explanation, cv2.COLOR_BGR2RGB),
+                                caption=f"t={r['times'][idx]:.1f}s | fake {r['probs'][idx]:.2f}",
+                                use_container_width=True,
+                            )
                                 explanation,
                                 caption=(
                                     f"t={r['times'][idx]:.1f}s | "
