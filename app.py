@@ -174,17 +174,30 @@ with tab_video:
                     )
 
                     banner(res)
+c1, c2, c3 = st.columns(3)
 
-                    c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("Frames analyzed", len(r["probs"]))
-                    c2.metric("Max fake score", f"{max(r['probs']):.2f}")
-                    c3.metric("Blinks", r["blink"]["blinks"])
-                    c4.metric(
-                        "Blink rate / min",
-                        r["blink"]["rate_per_min"],
-                    )
+c1.image(
+    r["face"],
+    channels="BGR",
+    caption="Detected face",
+)
 
-                    st.caption(
+c2.image(
+    r["cam"],
+    channels="BGR",
+    caption="Grad-CAM",
+)
+
+c3.image(
+    r["ela"],
+    caption="Error Level Analysis (ELA)",
+)
+
+st.caption(
+    "ELA supporting analysis hai. Compression aur "
+    "image editing results ko affect kar sakte hain."
+)
+
                         "Blink rate sirf supporting signal hai; "
                         "ise akela deepfake proof na samjhein."
                     )
