@@ -362,4 +362,3 @@ with tab_info:
 - ELA akela image manipulation ka proof nahi hai.
 - Results ko supporting evidence samjhein, final proof nahi.
 """)
-""")
