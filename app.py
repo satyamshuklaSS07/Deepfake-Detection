@@ -332,56 +332,34 @@ with tab_image:
                             res["score"],
                         )
 
+
                         banner(res)
 
                         c1, c2, c3 = st.columns(3)
 
-                        face_rgb = cv2.cvtColor(
-                            r["face"], cv2.COLOR_BGR2RGB
-                        )
-                        cam_rgb = cv2.cvtColor(
-                            r["cam"], cv2.COLOR_BGR2RGB
-                        )
-
-                        face_img = Image.fromarray(
-                            np.ascontiguousarray(face_rgb)
-                        )
-                        cam_img = Image.fromarray(
-                            np.ascontiguousarray(cam_rgb)
-                        )
-                                                ela_img = Image.fromarray(
-                            np.ascontiguousarray(r["ela"])
-                        )
-
                         c1.image(
                             r["face"],
                             channels="BGR",
-                            caption="Detected face"
+                            caption="Detected face",
                         )
                         c2.image(
                             r["cam"],
                             channels="BGR",
-                            caption="Grad-CAM"
+                            caption="Grad-CAM",
                         )
                         c3.image(
                             r["ela"],
                             channels="RGB",
-                            caption="Error Level Analysis (ELA)"
-                        )
-
-                except Exception as e:
-                    st.error("Image analysis failed.")
-                    st.exception(e)
-                        c3.image(
-                            r["ela"],
-                            channels="RGB",
-                            caption="Error Level Analysis (ELA)"
+                            caption="Error Level Analysis (ELA)",
                         )
 
                 except Exception as e:
                     st.error("Image analysis failed.")
                     st.exception(e)
 # --------------------------------------------------
+# INFORMATION TAB
+# --------------------------------------------------
+
 # INFORMATION TAB
 # --------------------------------------------------
 with tab_info:
