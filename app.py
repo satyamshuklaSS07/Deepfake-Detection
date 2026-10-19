@@ -203,20 +203,48 @@ with tab_video:
                         "ye apne aap mein fake hone ka proof nahi hain."
                     )
 
-                    top = np.argsort(r["probs"])[::-1][:4]
+                                     top = np.argsort(r["probs"])[::-1][:4]
                     cols = st.columns(len(top))
 
                     for col, idx in zip(cols, top):
                         explanation = model.explain(r["faces"][idx])
 
-                        col.image(
-                            explanation,
-                            channels="BGR",
-                            caption=(
-                                f"t={r['times'][idx]:.1f}s | "
-                                f"fake {r['probs'][idx]:.2f}"
-                            ),
-                        )
+                        if explanation is None:
+                            col.warning("Grad-CAM image unavailable")
+                            continue
+
+                        explanation = np.asarray(explanation)
+
+                        if explanation.dtype != np.uint8:
+                            if explanation.size and explanation.max() <= 1.0:
+                                explanation = (
+                                    explanation * 255
+                                ).clip(0, 255).astype(np.uint8)
+                            else:
+                                explanation = explanation.clip(
+                                    0, 255
+                                ).astype(np.uint8)
+
+                        if explanation.ndim == 2:
+                            col.image(
+                                explanation,
+                                caption=(
+                                    f"t={r['times'][idx]:.1f}s | "
+                                    f"fake {r['probs'][idx]:.2f}"
+                                ),
+                                use_container_width=True,
+                            )
+                        else:
+                            col.image(
+                                cv2.cvtColor(
+                                    explanation, cv2.COLOR_BGR2RGB
+                                ),
+                                caption=(
+                                    f"t={r['times'][idx]:.1f}s | "
+                                    f"fake {r['probs'][idx]:.2f}"
+                                ),
+                                use_container_width=True,
+                            )
 
                     report = {
                         "file": up.name,
